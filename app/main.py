@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# start scheduler
-import app.scheduler
+from apscheduler.schedulers.background import BackgroundScheduler
+
+import requests
+import os
 
 from app.scanner import scan_markets
 from app.trade_manager import update_trade_status
@@ -24,6 +26,62 @@ app.add_middleware(
 )
 
 # -----------------------------------
+# SCHEDULER
+# -----------------------------------
+
+scheduler = BackgroundScheduler()
+
+# -----------------------------------
+# AUTOMATED SCAN LOOP
+# -----------------------------------
+
+def scheduled_scan():
+
+    print("RUNNING AUTOMATED SCAN...")
+
+    update_trade_status()
+
+    signals = scan_markets()
+
+    print("SCAN COMPLETE")
+
+    for signal in signals:
+
+        print(
+            signal["pair"],
+            signal["signal"],
+            signal["setup_score"]
+        )
+
+# -----------------------------------
+# STARTUP
+# -----------------------------------
+
+@app.on_event("startup")
+def startup_event():
+
+    print("STARTING SCHEDULER...")
+
+    scheduler.add_job(
+        scheduled_scan,
+        "interval",
+        minutes=5
+    )
+
+    scheduler.start()
+
+    print("SCHEDULER STARTED")
+
+# -----------------------------------
+# SHUTDOWN
+# -----------------------------------
+
+@app.on_event("shutdown")
+def shutdown_event():
+
+    scheduler.shutdown()
+
+# -----------------------------------
 # ROOT
 # -----------------------------------
 
@@ -41,9 +99,7 @@ def root():
 @app.get("/signals")
 def get_signals():
 
-    signals = scan_markets()
-
-    return signals
+    return scan_markets()
 
 # -----------------------------------
 # FORCE SCAN
@@ -54,10 +110,8 @@ def force_scan():
 
     print("MANUAL FORCE SCAN")
 
-    # update active trades
     update_trade_status()
 
-    # scan markets
     signals = scan_markets()
 
     return {
@@ -82,3 +136,45 @@ def analytics():
 def diagnostics():
 
     return get_diagnostics()
+
+# -----------------------------------
+# TELEGRAM TEST
+# -----------------------------------
+
+@app.get("/test-telegram")
+def test_telegram():
+
+    token = os.getenv(
+        "TELEGRAM_BOT_TOKEN"
+    )
+
+    chat_id = os.getenv(
+        "TELEGRAM_CHAT_ID"
+    )
+
+    message = (
+        "🚀 Railway Telegram "
+        "Test Success"
+    )
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{token}/sendMessage"
+    )
+
+    response = requests.post(
+        url,
+        json={
+            "chat_id": chat_id,
+            "text": message
+        }
+    )
+
+    return {
+
+        "status_code":
+            response.status_code,
+
+        "response":
+            response.text
+    }
